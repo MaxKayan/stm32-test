@@ -26,6 +26,9 @@
 #include "stdio.h"
 #include "string.h"
 
+#include <errno.h>
+#include <sys/unistd.h>// STDOUT_FILENO, STDERR_FILENO
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -61,18 +64,24 @@ static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
-int _write(int file, char *ptr, int len) {
-  /* Implement your write code here, this is used by puts and printf for example */
-  int i = 0;
-  for (i = 0; i < len; i++)
-    ITM_SendChar((*ptr++));
-  return len;
+int _write(int file, char *data, int len) {
+  if ((file != STDOUT_FILENO) && (file != STDERR_FILENO)) {
+    errno = EBADF;
+    return -1;
+  }
+
+  // arbitrary timeout 1000
+  HAL_StatusTypeDef status =
+          HAL_UART_Transmit(&huart1, (uint8_t *) data, len, 1000);
+
+  // return # of bytes written - as best we can tell
+  return (status == HAL_OK ? len : 0);
 }
 
-void debugPrintln(UART_HandleTypeDef *huart, char _out[]) {
-  HAL_UART_Transmit(huart, (uint8_t *) _out, strlen(_out), 10);
+void debugPrint(char *_out) {
+  HAL_UART_Transmit(&huart1, (uint8_t *) _out, strlen(_out), 10);
   char newline[2] = "\r\n";
-  HAL_UART_Transmit(huart, (uint8_t *) newline, 2, 10);
+  HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
 }
 
 /* USER CODE END PFP */
@@ -123,7 +132,8 @@ int main(void) {
     HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
     HAL_Delay(blinkDelay);
 
-    debugPrintln(&huart1, "Hello world!!!");
+    int tick = HAL_GetTick();
+    printf("Hello world! - tick = %i\n", tick);
   }
   /* USER CODE END 3 */
 }
