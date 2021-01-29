@@ -54,7 +54,6 @@ UART_HandleTypeDef huart3;
 #pragma ide diagnostic ignored "EndlessLoop"
 
 float myVal = 0.4f;
-int blinkDelay = 1000;
 
 uint8_t TxData[64];
 uint8_t RxData[64];
@@ -93,6 +92,28 @@ void debugPrint(char *_out) {
   HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
 }
 
+
+void sendCommand(char *command, u_int8_t *buffer) {
+  HAL_UART_Transmit(&huart3, (u_int8_t *) command, strlen(command), 10);
+  HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, buffer, sizeof(buffer), 1000);
+  printf("rx-status = %u ; data = \n%s\n", receiveStatus, buffer);
+}
+
+
+/**
+ * Boot up SIM800C
+ * @param duration - How long should boot pin be linked to ground (ms)
+ */
+void initGSM(int duration) {
+  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_RESET);
+  HAL_Delay(duration);
+
+  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_SET);
+
+  sendCommand("AT\n\r", RxData);
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -126,7 +147,12 @@ int main(void) {
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  stpcpy((char *) TxData, "AT\n\r");
+  // Startup Pin States
+  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_SET);
+
+  int blinkDelay = 1000;
+
+  initGSM(1000);
 
   /* USER CODE END 2 */
 
@@ -138,17 +164,18 @@ int main(void) {
     /* USER CODE BEGIN 3 */
     HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
 
-    const char *val = "AT\n\r";
+    const char *val = "ATI\n\r";
     HAL_StatusTypeDef transmitStatus = HAL_UART_Transmit(&huart3, (uint8_t *) val, strlen(val), 10);
-    //    printf("Sent request to modem, status = %u ; request = %s\n", transmitStatus, TxData);
-
     HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, RxData, sizeof(RxData), 1000);
-    printf("tx-status: = %u ; rx-status = %u ; data = %s\n", transmitStatus, receiveStatus, RxData);
+    printf("tx-status: = %u ; rx-status = %u ; data = \n%s\n", transmitStatus, receiveStatus, RxData);
 
-    HAL_Delay(blinkDelay);
+    GPIO_PinState keyButton = HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin);
 
-    //    int tick = HAL_GetTick();
-    //    printf("Hello world! - tick = %i\n", tick);
+    if (keyButton == GPIO_PIN_SET) {
+      //      HAL_Delay(0);
+    } else {
+      HAL_Delay(blinkDelay);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -167,19 +194,21 @@ void SystemClock_Config(void) {
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
   /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -253,12 +282,24 @@ static void MX_GPIO_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GSM_BOOT_Pin | LED2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : KEY_Pin */
+  GPIO_InitStruct.Pin = KEY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(KEY_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : GSM_BOOT_Pin */
+  GPIO_InitStruct.Pin = GSM_BOOT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GSM_BOOT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED2_Pin */
   GPIO_InitStruct.Pin = LED2_Pin;
