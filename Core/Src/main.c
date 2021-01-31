@@ -93,24 +93,54 @@ void debugPrint(char *_out) {
 }
 
 
-void sendCommand(char *command, u_int8_t *buffer) {
+/**
+ *
+ * @param command - The AT command to be sent. Don't forget to add newline at the end.
+ * @param rxBuffer - Where should we write received data.
+ */
+void sendCommand(char *command, u_int8_t *rxBuffer) {
+  printf("Sending... - %s", command);
+  uint8_t buffer[128];
+
   HAL_UART_Transmit(&huart3, (u_int8_t *) command, strlen(command), 10);
-  HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, buffer, sizeof(buffer), 1000);
+  HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, buffer, 128, 1000);
   printf("rx-status = %u ; data = \n%s\n", receiveStatus, buffer);
+  HAL_Delay(400);
 }
 
+void resetBootPin(int duration) {
+  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_RESET);
+  HAL_Delay(duration);
+
+  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_SET);
+}
 
 /**
  * Boot up SIM800C
  * @param duration - How long should boot pin be linked to ground (ms)
  */
 void initGSM(int duration) {
-  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_RESET);
-  HAL_Delay(duration);
+  HAL_UART_Transmit(&huart3, (u_int8_t *) "AT\n\r", 4, 10);
+  HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, RxData, 4, 1000);
+  if (receiveStatus == HAL_OK) {
+    printf("GSM is already started\n");
+    resetBootPin(1500);
+    HAL_Delay(1000);
+  }
 
-  HAL_GPIO_WritePin(GSM_BOOT_GPIO_Port, GSM_BOOT_Pin, GPIO_PIN_SET);
+  resetBootPin(1500);
+
+  HAL_Delay(2000);
 
   sendCommand("AT\n\r", RxData);
+}
+
+
+void testGPRS() {
+  sendCommand("AT+SAPBR=3,1,\"Contype\",\"GPRS\"\n\r", RxData);
+  sendCommand("AT+SAPBR=3,1,\"APN\",\"internet.beeline.ru\"\n\r", RxData);
+  sendCommand("AT+SAPBR=1,1\n\r", RxData);
+  sendCommand("AT+SAPBR=2,1\n\r", RxData);
 }
 
 
@@ -152,7 +182,13 @@ int main(void) {
 
   int blinkDelay = 1000;
 
-  initGSM(1000);
+  initGSM(1500);
+
+  HAL_Delay(700);
+
+  sendCommand("AT+CPIN?", RxData);
+
+  testGPRS();
 
   /* USER CODE END 2 */
 
@@ -164,10 +200,17 @@ int main(void) {
     /* USER CODE BEGIN 3 */
     HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
 
-    const char *val = "ATI\n\r";
-    HAL_StatusTypeDef transmitStatus = HAL_UART_Transmit(&huart3, (uint8_t *) val, strlen(val), 10);
-    HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, RxData, sizeof(RxData), 1000);
-    printf("tx-status: = %u ; rx-status = %u ; data = \n%s\n", transmitStatus, receiveStatus, RxData);
+    //    const char *val = "ATI\n\r";
+    //    HAL_StatusTypeDef transmitStatus = HAL_UART_Transmit(&huart3, (uint8_t *) val, strlen(val), 10);
+    //    HAL_StatusTypeDef receiveStatus = HAL_UART_Receive(&huart3, RxData, sizeof(RxData), 1000);
+    //    printf("tx-status: = %u ; rx-status = %u ; data = \n%s\n", transmitStatus, receiveStatus, RxData);
+
+    sendCommand("ATI\n\r", RxData);
+    //    sendCommand("AT+CSMINS?\n\r", RxData);
+    //    sendCommand("AT+CLTS?\n\r", RxData);
+    //    sendCommand("AT+CCID\n\r", RxData);
+    //    sendCommand("AT+CGREG?\n\r", RxData);
+    //    sendCommand("AT+CIPSTATUS\n\r", RxData);
 
     GPIO_PinState keyButton = HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin);
 
